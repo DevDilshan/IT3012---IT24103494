@@ -1,7 +1,7 @@
 # visual_grid_game.py
 import random
 import tkinter as tk
-from agent import SimpleReflexAgent, ModelBasedAgent
+from agent import SimpleReflexAgent, ModelBasedAgent, SearchAgent
 
 DIRECTIONS = ['Up', 'Right', 'Down', 'Left']
 DIRECTION_DELTAS = {
@@ -58,6 +58,7 @@ class VisualGridHuntGame:
         self.score = 0
         self.steps = 0
         self.collision = False
+        self.absolute_navigation = False
 
     def _turn_left(self):
         idx = DIRECTIONS.index(self.facing)
@@ -75,11 +76,15 @@ class VisualGridHuntGame:
         return x < 0 or x >= self.width or y < 0 or y >= self.height or (x, y) in self.walls
 
     def get_percept(self) -> dict:
-        """Partial observability: only local booleans, no global coordinates."""
+        """Local percepts plus global world model for search-based agents."""
         ahead_x, ahead_y = self._cell_ahead()
         return {
             'wall_ahead': self._is_wall_or_boundary(ahead_x, ahead_y),
             'food_here': tuple(self.agent_pos) in self.food_positions,
+            'agent_pos': list(self.agent_pos),
+            'grid_size': (self.width, self.height),
+            'walls': list(self.walls),
+            'all_food': list(self.food_positions),
         }
 
     def _move_forward(self):
@@ -116,12 +121,13 @@ class VisualGridHuntGame:
     def execute_action(self, action: str):
         self.steps += 1
 
-        relative_aliases = {
-            'Left': 'turn_left',
-            'Right': 'turn_right',
-            'Up': 'move_forward',
-        }
-        action = relative_aliases.get(action, action)
+        if not self.absolute_navigation:
+            relative_aliases = {
+                'Left': 'turn_left',
+                'Right': 'turn_right',
+                'Up': 'move_forward',
+            }
+            action = relative_aliases.get(action, action)
 
         if action == 'turn_left':
             self._turn_left()
@@ -147,6 +153,8 @@ class VisualGridHuntGame:
             else:
                 self.agent_pos = new_pos
                 self.facing = action
+                if tuple(self.agent_pos) in self.food_positions:
+                    self._collect_food()
 
         self._apply_position_effects()
 
@@ -169,7 +177,7 @@ class GridGameGUI:
         agent_class=SimpleReflexAgent,
     ):
         self.root = root
-        self.root.title("IT3012 - Partial Observability Lab")
+        self.root.title("IT3012 - Search Algorithms Lab")
         self.agent = agent_class()
 
         self.env = VisualGridHuntGame(
@@ -180,6 +188,7 @@ class GridGameGUI:
             num_traps=num_traps,
             custom_walls=walls,
         )
+        self.env.absolute_navigation = agent_class is SearchAgent
 
         max_canvas_dim = 600
         self.cell_size = max(20, min(max_canvas_dim // self.env.width, max_canvas_dim // self.env.height))
@@ -287,12 +296,14 @@ class GridGameGUI:
                 self.env.execute_action(action)
 
                 self.draw_grid()
+                algo = getattr(self.agent, 'active_algo', '')
+                algo_text = f" | Algo: {algo}" if algo else ""
                 self.label.config(
                     text=(
-                        f"Agent: {self.agent.__class__.__name__} | "
+                        f"Agent: {self.agent.__class__.__name__}{algo_text} | "
                         f"Score: {self.env.score} | Steps: {self.env.steps} | "
                         f"Facing: {self.env.facing} | Action: {action} | "
-                        f"Percept: {percept}"
+                        f"Plan left: {len(getattr(self.agent, 'plan', []))}"
                     )
                 )
                 self.root.after(250, step)
@@ -311,22 +322,22 @@ class GridGameGUI:
 if __name__ == "__main__":
     root = tk.Tk()
 
-    # U-shaped trap to demonstrate simple reflex failure vs model-based escape
-    u_trap_walls = {
-        (1, 0), (2, 0), (3, 0),
-        (3, 1), (3, 2), (3, 3),
-        (1, 3), (2, 3),
+    # Maze for comparing BFS, DFS, and UCS path shapes
+    search_maze_walls = {
+        (1, 0), (2, 0), (3, 0), (4, 0),
+        (4, 1), (4, 2), (4, 3),
+        (1, 3), (2, 3), (3, 3),
     }
 
-    agent_choice = ModelBasedAgent  # Change to SimpleReflexAgent to see the loop trap
+    agent_choice = SearchAgent  # Change active_algo inside SearchAgent: 'BFS', 'DFS', 'UCS'
     app = GridGameGUI(
         root,
-        width=5,
+        width=6,
         height=4,
-        num_food=1,
+        num_food=2,
         num_opponents=0,
         num_traps=0,
-        walls=u_trap_walls,
+        walls=search_maze_walls,
         agent_class=agent_choice,
     )
     root.mainloop()

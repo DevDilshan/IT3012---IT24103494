@@ -1,4 +1,5 @@
 # agent.py
+import heapq
 import random
 from collections import deque
 
@@ -60,36 +61,129 @@ class ModelBasedAgent:
 
 
 class SearchAgent:
-    """Problem-solving agent that plans paths with breadth-first search."""
+    """Problem-solving agent that plans paths with uninformed search."""
 
-    def bfs_search(self, start_pos, goal_pos, walls, grid_size):
+    DIRECTIONS = {
+        'Up': (0, 1),
+        'Down': (0, -1),
+        'Left': (-1, 0),
+        'Right': (1, 0),
+    }
+
+    def __init__(self):
+        self.plan = []
+        self.active_algo = 'BFS'
+
+    def _neighbors(self, pos, walls, grid_size):
         width, height = grid_size
         walls = set(walls)
-        directions = {
-            'Up': (0, 1),
-            'Down': (0, -1),
-            'Left': (-1, 0),
-            'Right': (1, 0),
-        }
+        x, y = pos
 
+        for action, (dx, dy) in self.DIRECTIONS.items():
+            next_pos = (x + dx, y + dy)
+            nx, ny = next_pos
+            if (
+                0 <= nx < width
+                and 0 <= ny < height
+                and next_pos not in walls
+            ):
+                yield next_pos, action
+
+    def bfs_search(self, start_pos, goal_pos, walls, grid_size):
+        """FIFO frontier — explores shallowest nodes first."""
+        start_pos = tuple(start_pos)
+        goal_pos = tuple(goal_pos)
         queue = deque([(start_pos, [])])
-        visited = {start_pos}
+        reached = {start_pos}
 
         while queue:
-            (x, y), path = queue.popleft()
-            if (x, y) == goal_pos:
+            pos, path = queue.popleft()
+            if pos == goal_pos:
                 return path
 
-            for action, (dx, dy) in directions.items():
-                next_pos = (x + dx, y + dy)
-                nx, ny = next_pos
-                if (
-                    0 <= nx < width
-                    and 0 <= ny < height
-                    and next_pos not in walls
-                    and next_pos not in visited
-                ):
-                    visited.add(next_pos)
+            for next_pos, action in self._neighbors(pos, walls, grid_size):
+                if next_pos not in reached:
+                    reached.add(next_pos)
                     queue.append((next_pos, path + [action]))
 
         return None
+
+    def dfs_search(self, start_pos, goal_pos, walls, grid_size):
+        """LIFO frontier — explores deepest nodes first."""
+        start_pos = tuple(start_pos)
+        goal_pos = tuple(goal_pos)
+        stack = [(start_pos, [])]
+        reached = {start_pos}
+
+        while stack:
+            pos, path = stack.pop()
+            if pos == goal_pos:
+                return path
+
+            for next_pos, action in self._neighbors(pos, walls, grid_size):
+                if next_pos not in reached:
+                    reached.add(next_pos)
+                    stack.append((next_pos, path + [action]))
+
+        return None
+
+    def ucs_search(self, start_pos, goal_pos, walls, grid_size):
+        """Priority queue ordered by path cost g(n)."""
+        start_pos = tuple(start_pos)
+        goal_pos = tuple(goal_pos)
+        counter = 0
+        frontier = [(0, counter, start_pos, [])]
+        reached = {start_pos: 0}
+
+        while frontier:
+            cost, _, pos, path = heapq.heappop(frontier)
+            if pos == goal_pos:
+                return path
+
+            if cost > reached.get(pos, float('inf')):
+                continue
+
+            for next_pos, action in self._neighbors(pos, walls, grid_size):
+                next_cost = cost + 1
+                if next_cost < reached.get(next_pos, float('inf')):
+                    reached[next_pos] = next_cost
+                    counter += 1
+                    heapq.heappush(frontier, (next_cost, counter, next_pos, path + [action]))
+
+        return None
+
+    def _closest_food(self, start_pos, food_positions):
+        if not food_positions:
+            return None
+        start = tuple(start_pos)
+        return min(
+            food_positions,
+            key=lambda food: abs(food[0] - start[0]) + abs(food[1] - start[1]),
+        )
+
+    def _plan_to_closest_food(self, percept):
+        start_pos = tuple(percept['agent_pos'])
+        goal_pos = self._closest_food(start_pos, percept.get('all_food', []))
+        if goal_pos is None:
+            return []
+
+        walls = percept['walls']
+        grid_size = percept['grid_size']
+
+        if self.active_algo == 'DFS':
+            path = self.dfs_search(start_pos, goal_pos, walls, grid_size)
+        elif self.active_algo == 'UCS':
+            path = self.ucs_search(start_pos, goal_pos, walls, grid_size)
+        else:
+            path = self.bfs_search(start_pos, goal_pos, walls, grid_size)
+
+        return path if path else []
+
+    def sense_and_act(self, percept: dict) -> str:
+        if not self.plan:
+            self.plan = self._plan_to_closest_food(percept)
+
+        if self.plan:
+            return self.plan.pop(0)
+
+        return 'Up'
