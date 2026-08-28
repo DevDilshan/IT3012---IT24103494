@@ -329,7 +329,7 @@ if __name__ == "__main__":
         (1, 3), (2, 3), (3, 3),
     }
 
-    agent_choice = SearchAgent  # Change active_algo inside SearchAgent: 'BFS', 'DFS', 'UCS'
+    agent_choice = SearchAgent  # active_algo in SearchAgent: 'BFS', 'DFS', 'UCS', 'AStar'
     app = GridGameGUI(
         root,
         width=6,
